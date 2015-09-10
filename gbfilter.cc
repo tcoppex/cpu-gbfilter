@@ -178,9 +178,14 @@ bool BMPFile::save(const char* filename) const {
     return false;
   }
 
+  // headers
   fwrite(&bfh_, sizeof(bfh_), 1u, fd);
   fwrite(&bih_, sizeof(bih_), 1u, fd);
+  
+  // datas
+  fseek(fd, bfh_.bfOffBits, SEEK_SET);
   fwrite(data_, 1u, bih_.biSizeImage, fd);
+  
   fclose(fd);
 
   return true;
@@ -306,7 +311,9 @@ private:
   // ---------------------------------------------------------------------------
   /// @name Attributes
   // ---------------------------------------------------------------------------
-
+  // Kernel radius threshold after which the transpose buffer layout optimization is used
+  static const float kTransposeRadiusThreshold = 28.0f;
+  // number of RGB buffer used
   static const unsigned int kNumRGBBuffer = 2u;
 
   float *filter1D_;                     //< 1D Gaussian filter
@@ -352,19 +359,20 @@ void GBFilter::apply(BMPFile &bmp, unsigned int tile_w, unsigned int tile_h) {
   const unsigned int kResolution = bmp.resolution();
 
   // Initialize RGB float buffers
-  for (unsigned i = 0u; i < kNumRGBBuffer; ++i) {
+  for (unsigned i=0u; i<kNumRGBBuffer; ++i) {
     buffer_[i].red   = new float[kResolution];
     buffer_[i].green = new float[kResolution];
     buffer_[i].blue  = new float[kResolution];
   }
 
-  // setup first blur buffer [uchar to float]
   unsigned char *pixels = bmp.data();
-  float scale = 1.0f / 255.0f;
-  for (unsigned int i=0u, j=0u; i < kResolution; ++i, j+=3u) {
-    buffer_[0u].blue[i]  = scale * pixels[j + 0u];
-    buffer_[0u].green[i] = scale * pixels[j + 1u];
-    buffer_[0u].red[i]   = scale * pixels[j + 2u];
+
+  // setup first blur buffer [uchar to float]
+  const float scale = 1.0f / 255.0f;
+  for (unsigned int i=0u; i<kResolution; ++i) {
+    buffer_[0u].blue[i]  = scale * pixels[3u*i + 0u];
+    buffer_[0u].green[i] = scale * pixels[3u*i + 1u];
+    buffer_[0u].red[i]   = scale * pixels[3u*i + 2u];
 
     // [debug color]
     buffer_[1u].blue[i]  = 1.0f;
@@ -385,10 +393,10 @@ void GBFilter::apply(BMPFile &bmp, unsigned int tile_w, unsigned int tile_h) {
   blur(layout);
 
   // Update BMP buffer [float to uchar]
-  for (unsigned int i=0u, j=0u; i < kResolution; ++i, j+=3u) {
-    pixels[j + 0u] = (unsigned char)(255 * buffer_[0u].blue[i]);
-    pixels[j + 1u] = (unsigned char)(255 * buffer_[0u].green[i]);
-    pixels[j + 2u] = (unsigned char)(255 * buffer_[0u].red[i]);
+  for (unsigned int i=0u; i<kResolution; ++i) {
+    pixels[3u*i + 0u] = (unsigned char)(255 * buffer_[0u].blue[i]);
+    pixels[3u*i + 1u] = (unsigned char)(255 * buffer_[0u].green[i]);
+    pixels[3u*i + 2u] = (unsigned char)(255 * buffer_[0u].red[i]);
   }
 }
 
@@ -422,16 +430,18 @@ void GBFilter::init_filter1D() {
 
 #if __SSE4_1__
   /// Create the Vec4 gaussian filter
-  unsigned int nvec = Vec4::GetAlignedSize(kernel_size_);
+  const unsigned int nvec = Vec4::GetAlignedSize(kernel_size_);
   sse_filter_ = new Vec4[nvec];
-  unsigned int i=0u, j=0u;
-  for (; i<nvec-1u; ++i, j+=4u) {
-    sse_filter_[i] = Vec4(filter1D_[j], filter1D_[j+1], filter1D_[j+2], filter1D_[j+3]);
+
+  unsigned int i=0u, j=0u;  
+  for (; i+1u < nvec; ++i, j+=4u) {
+    sse_filter_[i] = Vec4(filter1D_[j], filter1D_[j+1u], filter1D_[j+2u], filter1D_[j+3u]);
   }
+
   sse_filter_[i].x = filter1D_[j];
-  sse_filter_[i].y = (j+1 < kernel_size_) ? filter1D_[j+1] : 0.0f;
-  sse_filter_[i].z = (j+2 < kernel_size_) ? filter1D_[j+2] : 0.0f;
-  sse_filter_[i].w = (j+3 < kernel_size_) ? filter1D_[j+3] : 0.0f;
+  sse_filter_[i].y = (j+1u < kernel_size_) ? filter1D_[j+1] : 0.0f;
+  sse_filter_[i].z = (j+2u < kernel_size_) ? filter1D_[j+2] : 0.0f;
+  sse_filter_[i].w = (j+3u < kernel_size_) ? filter1D_[j+3] : 0.0f;
 #endif
 }
 
@@ -481,7 +491,7 @@ void GBFilter::blur(LayoutParam_t &layout) {
   double t2 = GET_TIME();
 
   // Vertical blur
-  if (blur_radius_ < 28.0f) {
+  if (blur_radius_ < kTransposeRadiusThreshold) {
     blur_y(layout);
   } else {
     TransposeBuffer(buffer_[1u], buffer_[0u], layout);
@@ -535,7 +545,7 @@ unsigned int Min(unsigned int a, unsigned int b) {
 /// @return wrapped index
 inline
 unsigned int WrappedIndex(int x, int width) {
-  int index = (x < 0) ? -x-1 : (x >= width) ? 2*width-x-1 : x;
+  int index = (x < 0) ? -x-1 : (x >= width) ? width-1 : x;
   return static_cast<unsigned int>(index);
 }
 
@@ -615,7 +625,7 @@ void GBFilter::blur_pass(const LayoutParam_t &layout,
 int main(int argc, char **argv) {
   // Retrieve command line arguments
   if (argc < 6) {
-    fprintf(stderr, "usage :\n%s input_file output_file blur_radius tile_width" \
+    fprintf(stderr, "usage :\n%s input_file output_file blur_radius tile_width " \
                     "tile_height\n", argv[0]);
     exit(EXIT_FAILURE);
   }
