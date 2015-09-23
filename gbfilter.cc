@@ -15,7 +15,7 @@
 #endif
 
 #if __SSE4_1__
-#include "smmintrin.h"
+# include "smmintrin.h"
 #endif
 
 
@@ -50,12 +50,12 @@ public:
 
   /// Load a BMP from a file
   /// @param filename : bmp file to load
-  /// @return true if the file was load successfully
+  /// @return true if the file was loaded successfully
   bool load(const char* filename);
 
   /// Save a BMP to a file
   /// @param filename : bmp file to save
-  /// @return true if the file was save successfully
+  /// @return true if the file was saved successfully
   bool save(const char* filename) const;
 
 
@@ -84,8 +84,8 @@ private:
   /// @name Format headers
   // ---------------------------------------------------------------------------
 
-  // Tighly packed the structure to avoid unwanted padding
-# pragma pack(push, 1)
+  // Tighly pack the structure to avoid unwanted padding
+#pragma pack(push, 1)
   struct BITMAPFILEHEADER_t { 
     unsigned short  bfType;             //< filetype, must be "BM" (== 19778)
     unsigned int    bfSize;             //< filesize in bytes
@@ -93,7 +93,7 @@ private:
     unsigned short  bfReserved2;        //< reserved, must be 0
     unsigned int    bfOffBits;          //< offset in bytes, represent the header size
   };
-# pragma pack(pop)
+#pragma pack(pop)
 
   struct BITMAPINFOHEADER_t {
     unsigned int    biSize;             //< structure size, must be 40
@@ -135,16 +135,16 @@ bool BMPFile::load(const char* filename) {
   fread(&bih_, sizeof(bih_), 1u, fd);
 
   // Check file format
-# define GBFILTER_BMP_MAGICNUMBER  19778
+#define GBFILTER_BMP_MAGICNUMBER  19778
   if (bfh_.bfType != GBFILTER_BMP_MAGICNUMBER) {
     fprintf(stderr, "Error : invalid format.\n");
     fclose(fd);
     return false;
   }
-# undef GBFILTER_BMP_MAGICNUMBER
+#undef GBFILTER_BMP_MAGICNUMBER
 
-  // Only 24bit uncompressed image are accepted
-  if (bih_.biCompression != 0) {
+  // Only 24bit uncompressed images are accepted
+  if (bih_.biCompression > 0u) {
     fprintf(stderr, "Compressed BMP files are not handled yet.\n");
     fclose(fd);
     return false;
@@ -174,7 +174,7 @@ bool BMPFile::load(const char* filename) {
 bool BMPFile::save(const char* filename) const {
   FILE *fd = NULL;
 
-  if (NULL == (fd = fopen(filename, "w"))) {
+  if (NULL == (fd = fopen(filename, "wb"))) {
     return false;
   }
 
@@ -312,7 +312,8 @@ private:
   /// @name Attributes
   // ---------------------------------------------------------------------------
   // Kernel radius threshold after which the transpose buffer layout optimization is used
-  static const float kTransposeRadiusThreshold = 28.0f;
+  static const float kTransposeRadiusThreshold;
+
   // number of RGB buffer used
   static const unsigned int kNumRGBBuffer = 2u;
 
@@ -325,6 +326,8 @@ private:
   Vec4 *sse_filter_;                    //< 1D Gaussian filter using SSE4.1
 #endif
 };
+
+const float GBFilter::kTransposeRadiusThreshold = 28.0f;
 
 // -----------------------------------------------------------------------------
 
@@ -346,7 +349,7 @@ GBFilter::~GBFilter() {
 #endif
   }
 
-  for (unsigned int i = 0u; i < kNumRGBBuffer; ++i) {
+  for (unsigned int i=0u; i<kNumRGBBuffer; ++i) {
     delete [] buffer_[i].red;
     delete [] buffer_[i].green;
     delete [] buffer_[i].blue;
@@ -359,7 +362,7 @@ void GBFilter::apply(BMPFile &bmp, unsigned int tile_w, unsigned int tile_h) {
   const unsigned int kResolution = bmp.resolution();
 
   // Initialize RGB float buffers
-  for (unsigned i=0u; i<kNumRGBBuffer; ++i) {
+  for (unsigned int i=0u; i<kNumRGBBuffer; ++i) {
     buffer_[i].red   = new float[kResolution];
     buffer_[i].green = new float[kResolution];
     buffer_[i].blue  = new float[kResolution];
@@ -403,24 +406,26 @@ void GBFilter::apply(BMPFile &bmp, unsigned int tile_w, unsigned int tile_h) {
 // -----------------------------------------------------------------------------
 
 void GBFilter::init_filter1D() {
+
   filter1D_ = new float[kernel_size_];
 
   // Base parameters
-  int c = kernel_size_ / 2;
-  float sigma = kernel_size_ / 3.0f; // heuristic
-  float s = 2.0f * sigma * sigma;
+  const int c = kernel_size_ / 2;
+  const float sigma = kernel_size_ / 3.0f; // heuristic
+  const float s = 2.0f * sigma * sigma;
+  const float inv_s_pi = 1.0f / (3.14159265359f * s);
 
   // Calculate the Gaussian coefficients
   float sum = 0.0f;
   for (int x=-c; x<=c; ++x) {
     float r = x*x;
-    float coeff = exp(-r/s) / (M_PI * s);
+    float coeff = exp(-r/s) * inv_s_pi;
     filter1D_[x+c] = coeff;
     sum += coeff;
   }
 
   // Normalize the filter
-  float inv_sum = 1.0f / sum;
+  const float inv_sum = 1.0f / sum;
   for (unsigned int i=0u; i<kernel_size_; ++i) {
     filter1D_[i] *= inv_sum;
   }
@@ -439,9 +444,9 @@ void GBFilter::init_filter1D() {
   }
 
   sse_filter_[i].x = filter1D_[j];
-  sse_filter_[i].y = (j+1u < kernel_size_) ? filter1D_[j+1] : 0.0f;
-  sse_filter_[i].z = (j+2u < kernel_size_) ? filter1D_[j+2] : 0.0f;
-  sse_filter_[i].w = (j+3u < kernel_size_) ? filter1D_[j+3] : 0.0f;
+  sse_filter_[i].y = (j+1u < kernel_size_) ? filter1D_[j+1u] : 0.0f;
+  sse_filter_[i].z = (j+2u < kernel_size_) ? filter1D_[j+2u] : 0.0f;
+  sse_filter_[i].w = (j+3u < kernel_size_) ? filter1D_[j+3u] : 0.0f;
 #endif
 }
 
@@ -546,6 +551,7 @@ unsigned int Min(unsigned int a, unsigned int b) {
 inline
 unsigned int WrappedIndex(int x, int width) {
   int index = (x < 0) ? -x-1 : (x >= width) ? width-1 : x;
+  //const int index = (x < 0) ? -x : (x >= width) ? width-1 - (x-width) : x;
   return static_cast<unsigned int>(index);
 }
 
@@ -553,8 +559,8 @@ unsigned int WrappedIndex(int x, int width) {
 inline
 unsigned int GetBlurIndex(unsigned int x, unsigned int y, unsigned int w, 
                           unsigned int h, int dx, bool blurX) {
-  return (blurX) ? y*w + WrappedIndex(x + dx, w)
-                 : WrappedIndex(y + dx, h) * w + x;
+  return (blurX) ? y*w + WrappedIndex(int(x) + dx, w)
+                 : WrappedIndex(int(y) + dx, h) * w + x;
 }
 
 } // namespace
@@ -626,19 +632,19 @@ int main(int argc, char **argv) {
   // Retrieve command line arguments
   if (argc < 6) {
     fprintf(stderr, "usage :\n%s input_file output_file blur_radius tile_width " \
-                    "tile_height\n", argv[0]);
+                    "tile_height\n", argv[0u]);
     exit(EXIT_FAILURE);
   }
 
-  char *p_filename_in = argv[1];
-  char *p_filename_out = argv[2];
+  char *p_filename_in = argv[1u];
+  char *p_filename_out = argv[2u];
 
   float blur_radius(0.0f);
-  sscanf(argv[3], "%f", &blur_radius);
+  sscanf(argv[3u], "%f", &blur_radius);
 
-  unsigned int tilew(0u), tileh(0u);
-  sscanf(argv[4], "%u", &tilew);
-  sscanf(argv[5], "%u", &tileh);
+  unsigned int tile_w(0u), tile_h(0u);
+  sscanf(argv[4u], "%u", &tile_w);
+  sscanf(argv[5u], "%u", &tile_h);
  
   // ---------------------------
 
@@ -650,7 +656,7 @@ int main(int argc, char **argv) {
   }
   
   // Apply a Gaussian filter to the input image
-  GBFilter(blur_radius).apply(bmp, tilew, tileh);
+  GBFilter(blur_radius).apply(bmp, tile_w, tile_h);
 
   // Save the result
   bmp.save(p_filename_out);
