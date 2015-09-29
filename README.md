@@ -2,10 +2,10 @@ Optimized CPU Gaussian blur filter
 ==================================
 
 Features :
-* Cross-platform (Linux, Windows, OS X)
+* Cache efficient data access
 * Multithreading using OpenMP
 * Vectorization using SSE 4.1 intrinsics
-* Cache efficient
+* Cross-platform (Linux, Windows, OS X)
 * 24bpp uncompressed BMP reader/writer
 
 Build :
