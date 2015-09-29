@@ -131,20 +131,26 @@ bool BMPFile::load(const char* filename) {
   }
 
   // Read the file headers
-  fread(&bfh_, sizeof(bfh_), 1u, fd);
-  fread(&bih_, sizeof(bih_), 1u, fd);
+  const size_t bfh_res = fread(&bfh_, sizeof(bfh_), 1u, fd);
+  const size_t bih_res = fread(&bih_, sizeof(bih_), 1u, fd);
+  if (   1u != bfh_res
+      || 1u != bih_res) {
+    fprintf(stderr, "Error : the file header was not read correctly.\n");
+    fclose(fd);
+    return false;
+  }
 
   // Check file format
 #define GBFILTER_BMP_MAGICNUMBER  19778
   if (bfh_.bfType != GBFILTER_BMP_MAGICNUMBER) {
-    fprintf(stderr, "Error : invalid format.\n");
+    fprintf(stderr, "Error : invalid file format.\n");
     fclose(fd);
     return false;
   }
 #undef GBFILTER_BMP_MAGICNUMBER
 
   // Only 24bit uncompressed images are accepted
-  if (bih_.biCompression > 0u) {
+  if (bih_.biCompression != 0u) {
     fprintf(stderr, "Compressed BMP files are not handled yet.\n");
     fclose(fd);
     return false;
@@ -155,15 +161,19 @@ bool BMPFile::load(const char* filename) {
     return false;
   }
 
-  // Set attributes
-  const unsigned int bytesize = bih_.biSizeImage;
-  data_ = new unsigned char[bytesize];
+  // Create internal buffer
+  const unsigned int image_size = bih_.biSizeImage;
+  data_ = new unsigned char[image_size];
 
   // Be sure to start at pixels data
   fseek(fd, bfh_.bfOffBits, SEEK_SET);
 
-  // Load 24 bit uncompressed data [note: BGR order]
-  fread(data_, 1u, bytesize, fd);
+  // Load 24 bit uncompressed data [note: BGR order]  
+  if (image_size != fread(data_, 1u, image_size, fd)) {
+    fprintf(stderr, "Error : the file was not read correctly.\n");
+    fclose(fd);
+    return false;
+  }
 
   fclose(fd);
   return true;
@@ -406,20 +416,20 @@ void GBFilter::apply(BMPFile &bmp, unsigned int tile_w, unsigned int tile_h) {
 // -----------------------------------------------------------------------------
 
 void GBFilter::init_filter1D() {
-
   filter1D_ = new float[kernel_size_];
 
   // Base parameters
-  const int c = kernel_size_ / 2;
+  const int c = static_cast<int>(kernel_size_ / 2u);
   const float sigma = kernel_size_ / 3.0f; // heuristic
   const float s = 2.0f * sigma * sigma;
+  const float inv_s = 1.0f / s;
   const float inv_s_pi = 1.0f / (3.14159265359f * s);
 
   // Calculate the Gaussian coefficients
   float sum = 0.0f;
   for (int x=-c; x<=c; ++x) {
-    float r = x*x;
-    float coeff = exp(-r/s) * inv_s_pi;
+    const float r = x*x;
+    const float coeff = exp(-r * inv_s) * inv_s_pi;
     filter1D_[x+c] = coeff;
     sum += coeff;
   }
@@ -540,7 +550,7 @@ namespace {
 
 /// @return the minimum value between two
 inline
-unsigned int Min(unsigned int a, unsigned int b) {
+unsigned int Min(const unsigned int a, const unsigned int b) {
   return (a < b) ? a : b;
 }
 
@@ -549,9 +559,9 @@ unsigned int Min(unsigned int a, unsigned int b) {
 /// @param width : range upper boundary
 /// @return wrapped index
 inline
-unsigned int WrappedIndex(int x, int width) {
-  int index = (x < 0) ? -x-1 : (x >= width) ? width-1 : x;
-  //const int index = (x < 0) ? -x : (x >= width) ? width-1 - (x-width) : x;
+unsigned int WrappedIndex(const int x, const int width) {
+  //const int index = (x < 0) ? -x-1 : (x >= width) ? width-1 : x;
+  const int index = (x < 0) ? -x : (x < width) ? x : width-2 + width-x;
   return static_cast<unsigned int>(index);
 }
 
@@ -573,8 +583,8 @@ void GBFilter::blur_pass(const LayoutParam_t &layout,
                          const bool blurX,
                          const RGBBuffer_t &in,
                                RGBBuffer_t &out) {
-  // Discretize kernel radius
-  const int c = kernel_size_ / 2;
+  // Discretized kernel radius
+  const int c = static_cast<int>(kernel_size_ / 2u);
 
   // Tile start & end index
   const unsigned int start_x = tx * layout.tile_w;
