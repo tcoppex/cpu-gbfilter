@@ -1,6 +1,7 @@
 // -----------------------------------------------------------------------------
-// CreativeCommons BY-SA 3.0 2014 <Thibault Coppex>
-//
+// 2014-2015
+// Thibault Coppex <tcoppex@gmail.com>
+// For conditions of distribution and use, see copyright notice in LICENSE.md
 // -----------------------------------------------------------------------------
 
 #include <cstdlib>
